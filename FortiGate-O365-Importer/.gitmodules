@@ -1,0 +1,3 @@
+[submodule "Convert-Office365NetworksData"]
+	path = Convert-Office365NetworksData
+	url = https://github.com/it-praktyk/Convert-Office365NetworksData.git
