@@ -1,9 +1,13 @@
-﻿# TODO:
-# - Empty members not allowed
+﻿Import-Module ".\Convert-Office365NetworksData\ConvertFrom-O365AddressesXMLFile\ConvertFrom-O365AddressesXMLFile.ps1" -Force
+$a = ConvertFrom-O365AddressesXMLFile -RemoveFileAfterParsing
 
-# List available Services, Types
-# Set Maximum Object limit
-# delete duplicate IP Addresses
+# TODO:
+# - Don't print empty groups
+# - IPv6 and Domain Name support
+# - Parameter
+# - List available Services, Types
+# - delete duplicate IP Addresses
+# - integration with FortiManager API
 
 # edit G-EXTERN-MS-O365-UPDATE-110117-137.116.157.126/32
 # set subnet 137.116.157.126/32
@@ -15,112 +19,106 @@
 #end
 
 
-Import-Module ".\ConvertFrom-O365AddressesXMLFile.ps1" -Force
+## Parameters
 
-#$a = ConvertFrom-O365AddressesXMLFile -RemoveFileAfterParsing
-$a = ConvertFrom-O365AddressesXMLFile
-
+# Maximum support addresses per group all Fortigate models: 300
 $addrGrpLimit = 250
 
-$bTypes = ($a.Type |sort | unique)
-
-$bServices = ($a.Service | sort | unique)
-
-$bTypes = "IPv4"
-#$bServices = "SPO","RCA"
-
+# Name of address group object
 $startString = "G-EXTERN-MS-O365"
+
+# Address Object types (IPv4, IPV6, URL)
+$selectedTypes = "IPv4"
+#$selectedTypes = ($a.Type | Sort-Object | unique)
+
+# O365 Service selected (CRLs, EOP, OfficeIpad, Identity, etc.)
+$selectedServices = ($a.Service | Sort-Object | unique)
+
+
+
 
 $c = @{}
 
-"config firewall address"
+write-output "config firewall address"
 
-ForEach ($Service in $bServices) {
+ForEach ($Service in $selectedServices) {
 
-$temparray = New-Object System.Collections.ArrayList
+    $temparray = New-Object System.Collections.ArrayList
 
-    ForEach ($object in ($a | Where-Object {$_.Service -eq $Service})){
+    ForEach ($object in ($a | Where-Object {$_.Service -eq $Service})) {
         
 
-        if ($object.Type -eq 'IPv4' -and ($bTypes -contains $object.Type)){
+        if ($object.Type -eq 'IPv4' -and ($selectedTypes -contains $object.Type)) {
 
-            $obj_service = $object.Service
+            #$obj_service = $object.Service
             $obj_ip = "$($object.IPAddress)/$($object.SubnetMaskLength)"
 
-            "edit $startString-$obj_ip"
-            "set subnet $obj_ip"
-            "next"
+            write-output "edit $startString-$obj_ip"
+            write-output "set subnet $obj_ip"
+            write-output "next"
 
             $temparray.Add("$startString-$obj_ip") >$null
 
         }
 
 
-        if ($object.Type -eq 'IPv6' -and ($bTypes -contains $object.Type)){
+        if ($object.Type -eq 'IPv6' -and ($selectedTypes -contains $object.Type)) {
 
-            $obj_service = $object.Service
+            #$obj_service = $object.Service
             $obj_ip = "$($object.IPAddress)"
 
-            $obj_service
+            #$obj_service
             $obj_ip
         }
 
-        if ($object.Type -eq 'URL' -and ($bTypes -contains $object.Type)){
+        if ($object.Type -eq 'URL' -and ($selectedTypes -contains $object.Type)) {
 
-            $obj_service = $object.Service
+            #$obj_service = $object.Service
             $obj_ip = "$($object.Url)"
 
-            $obj_service
+            #$obj_service
             $obj_ip
         }
-
-     
-
     }
-
-
-    $c.Add($Service,$temparray)
-    
-    
+    $c.Add($Service, $temparray)
 }
 
-"end"
-"config firewall addrgrp"
+write-output "end"
 
-$cunter=1
+write-output "config firewall addrgrp"
 
 Foreach ($serviceType in $c.keys) {
 
-$tempstring =""
-
-"edit G-EXTERN-GRP-O365-$serviceType"
-
-Foreach ($element in $c[$serviceType]){
-
-$counter++;
-
-$tempstring += "`"$element`" "
+    $tempstring = ""
 
 
-if ($counter % $addrGrpLimit -eq 0){
+    write-output "edit G-EXTERN-GRP-O365-$serviceType"$
 
-"set member $tempstring"
-"next"
-$groupcounter++
-"edit G-EXTERN-GRP-O365-$serviceType-$groupcounter"
-$tempstring=""
-}
+    Foreach ($element in $c[$serviceType]) {
 
-}
+        $counter++;
 
-if ($tempstring.Length -gt 0)
-{
-"set member $tempstring"
-}
+        $tempstring += "`"$element`" "
 
-"next"
-$counter=0
-$groupcounter=0
+
+        if ($counter % $addrGrpLimit -eq 0) {
+
+            write-output "set member $tempstring"
+            write-output "next"
+            $groupcounter++
+            write-output "edit G-EXTERN-GRP-O365-$serviceType-$groupcounter"
+            $tempstring = ""
+        }
+
+    }
+
+    if ($tempstring.Length -gt 0) {
+        "set member $tempstring"
+    }
+
+    "next"
+    $counter = 0
+    $groupcounter = 0
 
 }
 
