@@ -2,13 +2,13 @@
 $a = ConvertFrom-O365AddressesXMLFile -RemoveFileAfterParsing
 
 # TODO:
-# - Don't print empty groups
-# - IPv6 and Domain Name support
+# - Fix maximum length on FQDN's
 # - Parameter
 # - List available Services, Types
 # - delete duplicate IP Addresses
 # - integration with FortiManager API
 
+# Target Formatation:
 # edit G-EXTERN-MS-O365-UPDATE-110117-137.116.157.126/32
 # set subnet 137.116.157.126/32
 # next
@@ -24,11 +24,14 @@ $a = ConvertFrom-O365AddressesXMLFile -RemoveFileAfterParsing
 # Maximum support addresses per group all Fortigate models: 300
 $addrGrpLimit = 250
 
-# Name of address group object
-$startString = "G-EXTERN-MS-O365"
+# Name of address object
+$StartStringAddressObject = "G-EXTERN-MS-O365"
+
+# Name of group object
+$StartStringGroupObject = "G-EXTERN-GRP-O365"
 
 # Address Object types (IPv4, IPV6, URL)
-$selectedTypes = "IPv4"
+$selectedTypes = "IPv6"
 #$selectedTypes = ($a.Type | Sort-Object | unique)
 
 # O365 Service selected (CRLs, EOP, OfficeIpad, Identity, etc.)
@@ -37,64 +40,102 @@ $selectedServices = ($a.Service | Sort-Object | unique)
 
 
 
-$c = @{}
+$o365AddressObjects = @(@{},@{},@{})
 
-write-output "config firewall address"
+$FortiIPV4Text = "config firewall address`n"
+$FortiIPV6Text = "config firewall address6`n"
+$FortiIPFQDNText = "config firewall address`n"
 
 ForEach ($Service in $selectedServices) {
 
-    $temparray = New-Object System.Collections.ArrayList
+    $temparray_v4 = New-Object System.Collections.ArrayList
+    $temparray_v6 = New-Object System.Collections.ArrayList
+    $temparray_fqdn = New-Object System.Collections.ArrayList
 
     ForEach ($object in ($a | Where-Object {$_.Service -eq $Service})) {
         
 
         if ($object.Type -eq 'IPv4' -and ($selectedTypes -contains $object.Type)) {
 
-            #$obj_service = $object.Service
             $obj_ip = "$($object.IPAddress)/$($object.SubnetMaskLength)"
 
-            write-output "edit $startString-$obj_ip"
-            write-output "set subnet $obj_ip"
-            write-output "next"
+            $FortiIPV4Text += "edit $StartStringAddressObject-$obj_ip`n"
+            $FortiIPV4Text += "set subnet $obj_ip`n"
+            $FortiIPV4Text += "set comment $($object.Service)`n"
+            $FortiIPV4Text += "next`n"
 
-            $temparray.Add("$startString-$obj_ip") >$null
+            $temparray_v4.Add("$StartStringAddressObject-$obj_ip") >$null
 
         }
 
 
         if ($object.Type -eq 'IPv6' -and ($selectedTypes -contains $object.Type)) {
 
-            #$obj_service = $object.Service
-            $obj_ip = "$($object.IPAddress)"
+            $obj_ip = "$($object.IPAddress)/$($object.SubnetMaskLength)"
+            
+            $FortiIPV6Text += "edit $StartStringAddressObject-$obj_ip`n"
+            $FortiIPV6Text += "set ip6 $obj_ip`n"
+            $FortiIPV6Text += "set comment $($object.Service)`n"
+            $FortiIPV6Text += "next`n"
 
-            #$obj_service
-            $obj_ip
+            $temparray_v6.Add("$StartStringAddressObject-$obj_ip") >$null
         }
 
         if ($object.Type -eq 'URL' -and ($selectedTypes -contains $object.Type)) {
 
-            #$obj_service = $object.Service
-            $obj_ip = "$($object.Url)"
+            $obj_fqdn = "$($object.Url)"
+            
+            $FortiIPFQDNText += "edit $StartStringAddressObject-$obj_fqdn`n"
+            $FortiIPFQDNText += "set type wildcard-fqdn`n"
+            $FortiIPFQDNText += "set wildcard-fqdn $obj_fqdn`n"
+            $FortiIPFQDNText += "set comment $($object.Service)`n"
+            $FortiIPFQDNText += "next`n"
 
-            #$obj_service
-            $obj_ip
+            $temparray_fqdn.Add("$StartStringAddressObject-$obj_fqdn") >$null
         }
     }
-    $c.Add($Service, $temparray)
+    if ($temparray_v4.Count){
+        $o365AddressObjects[0].Add($Service, $temparray_v4)}
+    if ($temparray_v6.Count){
+        $o365AddressObjects[1].Add($Service, $temparray_v6)}
+    if ($temparray_fqdn.Count){
+        $o365AddressObjects[2].Add($Service, $temparray_fqdn)}
+
 }
 
-write-output "end"
+$FortiIPV4Text += "end`n"
+$FortiIPV6Text += "end`n"
+$FortiIPFQDNText += "end`n"
 
-write-output "config firewall addrgrp"
+$FortiIPV4Text
+$FortiIPV6Text
+$FortiIPFQDNText
 
-Foreach ($serviceType in $c.keys) {
+
+for ($i=0;$i -le 2;$i++){
+
+    if ($o365AddressObjects[$i].keys -eq 0){ continue};
+
+switch ($i)
+{
+    0 {write-output "config firewall addrgrp"}
+    1 {write-output "config firewall addrgrp6"}
+    2 {write-output "config firewall addrgrp"}
+}
+
+Foreach ($serviceType in $o365AddressObjects[$i].keys) {
 
     $tempstring = ""
 
+    if ($o365AddressObjects[$i][$serviceType].Count -eq 0){ continue};
 
-    write-output "edit G-EXTERN-GRP-O365-$serviceType"$
+    switch ($i){
+        0 {write-output "edit $StartStringGroupObject-$serviceType"}
+        1 {write-output "edit $StartStringGroupObject-$serviceType"}
+        2 {write-output "edit $StartStringGroupObject-$serviceType-FQDN"}
+    }
 
-    Foreach ($element in $c[$serviceType]) {
+    Foreach ($element in $o365AddressObjects[$i][$serviceType]) {
 
         $counter++;
 
@@ -106,7 +147,7 @@ Foreach ($serviceType in $c.keys) {
             write-output "set member $tempstring"
             write-output "next"
             $groupcounter++
-            write-output "edit G-EXTERN-GRP-O365-$serviceType-$groupcounter"
+            write-output "edit $StartStringGroupObject-$serviceType-$groupcounter"
             $tempstring = ""
         }
 
@@ -121,5 +162,5 @@ Foreach ($serviceType in $c.keys) {
     $groupcounter = 0
 
 }
-
 "end"
+}
