@@ -1,28 +1,66 @@
-﻿Import-Module ".\Convert-Office365NetworksData\ConvertFrom-O365AddressesXMLFile\ConvertFrom-O365AddressesXMLFile.ps1" -Force
-$a = ConvertFrom-O365AddressesXMLFile -RemoveFileAfterParsing
-
-# TODO:
-# - Fix maximum length on FQDN's
+﻿# TODO:
+# - Fix maximum length on FQDN's.
 # - Parameter
 # - List available Services, Types
 # - delete duplicate IP Addresses
 # - integration with FortiManager API
 
-# Target Formatation:
-# edit G-EXTERN-MS-O365-UPDATE-110117-137.116.157.126/32
-# set subnet 137.116.157.126/32
-# next
-#config firewall addrgrp
-#    edit "G-INTERN-GRP-CAOP"
-#        set member "G-INTERN-CAOP-Prod" "G-INTERN-CAOP-Test" "G-INTERN-svr-sflext-01" "G-INTERN-ATWPSFLEX01" "G-INTERN-CAOP-Test01"
-#    next
-#end
+<#
+    .SYNOPSIS
+    Download and convert the O365IPAddresses.xml file to Fortigate CLI objects.
+    
+    .DESCRIPTION
+    This scripts downloads the latest O365 IP ranges and URLS and converts them into Fortigate Objects.
+    These Objects can be imported as a script or run directly on the CLI on a Fortigate.
+    
+    More information on the Microsoft support page: "Office 365 URLs and IP address ranges", http://bit.ly/1LD8fYv
+    
+    .PARAMETER addrGrpLimit
+    
+    .PARAMETER maximumNameLength
+    
+    .PARAMETER DownloadXMLOnly
+    
+    .PARAMETER StartStringAddressObject
+    
+    .PARAMETER StartStringGroupObject
+
+    .PARAMETER selectedTypes
+
+    .PARAMETER selectedServices
+
+    .INPUTS
+    None. The xml file published by Microsoft what contains the list of IP addresses ranges and names used by Office 365 services. 
+    
+    .OUTPUTS
+    None. The custom PowerShell object what contains properties: Service,Type,IPAddress,SubNetMaskLength,SubnetMask,Url
+  
+    .EXAMPLE
+    
+    
+    .EXAMPLE
+     
+    .LINK
+    https://github.com/sanderzegers/fortinet
+          
+    .NOTES
+    AUTHOR: Sander Zegers, sander[at]zegers[dot]email
+    AUTHOR (ConvertFrom-O365AddressesXMLFile.ps1): Wojciech Sciesinski, wojciech[at]sciesinski[dot]net
+    KEYWORDS: PowerShell, ,Fortigate, Office 365, O365, XML, Fortigate
+   
+#>
+
+Import-Module ".\Convert-Office365NetworksData\ConvertFrom-O365AddressesXMLFile\ConvertFrom-O365AddressesXMLFile.ps1" -Force
+$a = ConvertFrom-O365AddressesXMLFile -RemoveFileAfterParsing
 
 
 ## Parameters
 
 # Maximum support addresses per group all Fortigate models: 300
 $addrGrpLimit = 250
+
+# Maximum supported object name length. All Fortigate models: 
+$maximumNameLength = 63
 
 # Name of address object
 $StartStringAddressObject = "G-EXTERN-MS-O365"
@@ -31,7 +69,7 @@ $StartStringAddressObject = "G-EXTERN-MS-O365"
 $StartStringGroupObject = "G-EXTERN-GRP-O365"
 
 # Address Object types (IPv4, IPV6, URL)
-$selectedTypes = "IPv6"
+$selectedTypes = "IPv4"
 #$selectedTypes = ($a.Type | Sort-Object | unique)
 
 # O365 Service selected (CRLs, EOP, OfficeIpad, Identity, etc.)
@@ -85,13 +123,19 @@ ForEach ($Service in $selectedServices) {
 
             $obj_fqdn = "$($object.Url)"
             
-            $FortiIPFQDNText += "edit $StartStringAddressObject-$obj_fqdn`n"
+            $objectName = ("$StartStringAddressObject-$obj_fqdn")
+            if ($objectNAme.Length -ge $maximumNameLength){
+
+            $objectName = $objectName.Substring(0,$maximumNameLength)
+        }
+
+            $FortiIPFQDNText += "edit $objectName`n"
             $FortiIPFQDNText += "set type wildcard-fqdn`n"
             $FortiIPFQDNText += "set wildcard-fqdn $obj_fqdn`n"
             $FortiIPFQDNText += "set comment $($object.Service)`n"
             $FortiIPFQDNText += "next`n"
 
-            $temparray_fqdn.Add("$StartStringAddressObject-$obj_fqdn") >$null
+            $temparray_fqdn.Add("$objectName") >$null
         }
     }
     if ($temparray_v4.Count){
@@ -135,6 +179,8 @@ Foreach ($serviceType in $o365AddressObjects[$i].keys) {
         2 {write-output "edit $StartStringGroupObject-$serviceType-FQDN"}
     }
 
+    write-output "set comment `"Version: $(get-date)`""
+
     Foreach ($element in $o365AddressObjects[$i][$serviceType]) {
 
         $counter++;
@@ -148,6 +194,7 @@ Foreach ($serviceType in $o365AddressObjects[$i].keys) {
             write-output "next"
             $groupcounter++
             write-output "edit $StartStringGroupObject-$serviceType-$groupcounter"
+            write-output "set comment `"Version: $(get-date)`""            
             $tempstring = ""
         }
 
